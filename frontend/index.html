@@ -1,0 +1,160 @@
+<html>
+  <head>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/5.1.2/marked.min.js"></script>
+    <link href="https://unpkg.com/@tailwindcss/typography@0.4.1/dist/typography.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Mansalva&display=swap" rel="stylesheet">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browserman</title>
+  </head>
+  <body>
+    <section x-data="state()" class="max-w-2xl mx-auto pt-16 px-4  w-[900px]">
+      <div class="flex items-center justify-center h-[130px] mb-[80px]">
+        <img src="Frame 1.svg" alt="Frame 1" class="h-[114px] w-auto mr-10">
+        <img src="Browserman.svg" alt="Browserman" class="h-[83px] w-auto">
+      </div>
+
+      <form class="relative flex items-center">
+        <input
+          x-model="nextPrompt"
+          type="text"
+          placeholder="Get me a pizza on Doordash ..."
+          class="flex grow w-full h-10 pl-4 pr-12 py-2 text-md bg-white border-2 rounded-3xl border-black ring-offset-background placeholder:text-neutral-500 focus:border-black focus:outline-none focus:ring-black disabled:cursor-not-allowed disabled:opacity-50 font-['Mansalva']"
+          @keydown.window.prevent.ctrl.k="$el.focus()"
+          @keydown.window.prevent.cmd.k="$el.focus()"
+          autofocus
+        />
+        <button class="h-full bg-black text-white rounded-3xl px-4 py-2 cursor-pointer ml-4 font-['Mansalva']" @click.prevent="startSession()">
+          Go!
+        </button>
+      </form>
+
+      <div x-show="currentPrompt && !done" class="flex flex-wrap justify-center items-center mt-4 mb-6">
+        <div
+          x-init="setInterval(() => refreshInfo(), 1000)"
+          class="inline-flex flex-col sm:flex-row justify-center items-center gap-x-4 text-sm text-white px-3 py-1 bg-neutral-600 rounded-full"
+        >
+          <div class="flex items-center gap-x-1">
+            <div class="animate-spin w-4 h-4">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+            </div>
+            <span x-text="currentPrompt"></span>
+          </div>
+        </div>
+      </div>
+
+
+      <div x-show="lastText[0] || lastText[1] || lastText[2] || lastText[3] || lastImage[0] || lastImage[1] || lastImage[2] || lastImage[3]" class="grid grid-cols-2 gap-4 my-8">
+        <template x-for="i in [0, 1, 2, 3]">
+          <div class="border px-4 py-2 rounded-3xl">
+            <div x-show="lastText[i]" class="text-sm mt-2 mb-4">
+              <p x-text="lastText[i]"></p>
+            </div>
+            <div x-show="lastImage[i]">
+              <img :src="'data:image/png;base64,' + lastImage[i]" alt="Image" class="w-full h-auto">
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <script>
+        function state() {
+          return {
+            nextPrompt: "",
+            currentPrompt: "",
+            callId: null,
+            lastText: ["", "", "", ""],
+            lastImage: ["", "", "", ""],
+            done: false,
+            eventSource: null,
+            info: {
+              loaded: false,
+              backlog: 0,
+              num_total_runners: 0,
+            },
+            startSession() {
+              if (!this.nextPrompt) return;
+
+              let item = {
+                id: Math.random(),
+                prompt: this.nextPrompt,
+                completion: "",
+                loading: true,
+                markdownCompletion: "",
+              };
+              this.currentPrompt = item.prompt;
+              this.nextPrompt = "";
+              this.lastText = ["", "", "", ""];
+              this.lastImage = ["", "", "", ""];
+              this.done = false;
+              
+              if (this.eventSource) {
+                this.eventSource.close();
+              }
+
+              for (let i = 0; i < 4; i++) {
+                fetch("/start", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ query: item.prompt }),
+                })
+                  .then((response) => response.json())
+                  .then((data) => {
+                    console.log(data);
+                    this.callId = data.call_id;
+
+                    this.eventSource = new EventSource(
+                      `/status/${this.callId}`,
+                    );
+
+                    console.log("Created event source ...");
+
+                    this.eventSource.onmessage = (event) => {
+                      data = JSON.parse(event.data);
+                      console.log(data);
+                      if (data.image) {
+                        this.lastImage[i] = data.image;
+                      } else if (data.url) {
+                        this.lastText[i] = `Navigating to ${data.url}...`;
+                      } else if (data.button_text) {
+                        this.lastText[i] = `Clicking button with text ${data.button_text}...`;
+                      } else if (data.final_answer) {
+                        this.lastText[i] = `Final answer: ${data.final_answer}`;
+                        this.done = true;
+                        this.eventSource.close();
+                      }
+                    };
+
+                    this.eventSource.onerror = (event) => {
+                      // eventSource.close();
+                      console.log(event);
+                    };
+                  })
+                  .catch((error) => console.log(error));
+              }
+            },
+            refreshInfo() {
+            },
+          };
+        }
+      </script>
+    </section>
+  </body>
+</html>
